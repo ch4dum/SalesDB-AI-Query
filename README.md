@@ -1,0 +1,2 @@
+# SalesDB-AI-Query
+
