@@ -9,6 +9,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from langchain.prompts import PromptTemplate
 from langchain_experimental.sql import SQLDatabaseChain
 from langchain_community.llms import Ollama
+import time
 
 #%%
 # Connect to PostgreSQL (psycopg2)
@@ -48,6 +49,9 @@ print(table_info)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Running on device: {device}")
+print(f"CUDA Available: {torch.cuda.is_available()}")
+print(f"CUDA Version: {torch.version.cuda}")
+print(f"Device Count: {torch.cuda.device_count()}")
 
 #%%
 # Load model
@@ -55,7 +59,7 @@ print(f"Running on device: {device}")
 # torch.cuda.empty_cache()
 tokenizer = AutoTokenizer.from_pretrained("Ellbendls/Qwen-2.5-3b-Text_to_SQL")
 model = AutoModelForCausalLM.from_pretrained("Ellbendls/Qwen-2.5-3b-Text_to_SQL")
-# model = model.to(device)
+model = model.to(device)
 
 # llm = Ollama(model="qwen3:4b")
 # # Test model
@@ -108,7 +112,8 @@ Top 5 Columns in the Table:
 2.  emailaddress1
 3.  mobilephone
 4.  jobtitle
-5.  _parentcustomerid_value
+5. _parentcustomerid_value
+6. address1_city
 
 ---
 
@@ -133,7 +138,7 @@ Top 5 Columns in the Table:
 1.  name
 2.  telephone1
 3.  websiteurl
-4.  revenue
+4.  revenue -- TEXT (or VARCHAR)
 5.  _primarycontactid_value
 
 ---
@@ -308,10 +313,11 @@ Primary Key: systemuserid
 """
 
 def generate_sql(query: str, dialect: str = "postgresql"):
+    start_time = time.time()
     prompt = prompt_template.format(input=query, dialect=dialect, table_info=table_info_string)
     
-    # inputs = tokenizer(prompt, return_tensors="pt").to(device) 
-    inputs = tokenizer(prompt, return_tensors="pt")
+    inputs = tokenizer(prompt, return_tensors="pt").to(device) 
+    # inputs = tokenizer(prompt, return_tensors="pt")
     
     outputs = model.generate(**inputs, max_length=2000)
     
@@ -326,9 +332,13 @@ def generate_sql(query: str, dialect: str = "postgresql"):
         sql_query = full_output.strip()
         print("Warning: SQL start tag was not found in the model's output. Returning full output.")
         
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Time taken to generate SQL: {elapsed_time:.2f} seconds")
+    
     return sql_query
 
-user_query = "What are the names and estimated values of all opportunities that are in the '3.0' sales stage?"
+user_query = "Show the name of companies that have a revenue greater than 100000000000"
 sql = generate_sql(user_query)
 print("Generated SQL:", sql)
 
