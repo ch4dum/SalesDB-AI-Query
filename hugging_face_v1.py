@@ -1,10 +1,18 @@
-#%% Connect with PostgreSQL
-from langchain_community.utilities import SQLDatabase
-from langchain_community.llms import Ollama
-from sqlalchemy import create_engine
-import psycopg2
-import torch
 #%%
+# Imports
+
+import psycopg2
+from sqlalchemy import create_engine
+from langchain_community.utilities import SQLDatabase
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from langchain.prompts import PromptTemplate
+from langchain_experimental.sql import SQLDatabaseChain
+from langchain_community.llms import Ollama
+
+#%%
+# Connect to PostgreSQL (psycopg2)
+
 conn = psycopg2.connect(
     dbname="d365_database",
     user="postgres",
@@ -22,8 +30,9 @@ WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
 
 tables = [f'public.{row[0]}' for row in cursor.fetchall()]
 print("Tables in public:", tables)
+
 #%%
-# Connect with PostgreSQL
+# Connect with PostgreSQL (create_engine)
 
 engine = create_engine(
     "postgresql://postgres:Csi%40dmin9@localhost:5432/d365_database",
@@ -34,14 +43,15 @@ db = SQLDatabase(engine=engine)
 
 table_info = db.get_table_info()
 print(table_info)
-
+#%%
 # Cuda check
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Running on device: {device}")
-# %%
-from langchain.prompts import PromptTemplate
-from langchain_experimental.sql import SQLDatabaseChain
-from transformers import AutoTokenizer, AutoModelForCausalLM
+
+#%%
+# Load model
+
 # torch.cuda.empty_cache()
 tokenizer = AutoTokenizer.from_pretrained("Ellbendls/Qwen-2.5-3b-Text_to_SQL")
 model = AutoModelForCausalLM.from_pretrained("Ellbendls/Qwen-2.5-3b-Text_to_SQL")
@@ -51,11 +61,9 @@ model = AutoModelForCausalLM.from_pretrained("Ellbendls/Qwen-2.5-3b-Text_to_SQL"
 # # Test model
 # response = llm("สวัสดีครับ")
 # print(response)
-# %%
-from langchain.prompts import PromptTemplate
-from langchain_experimental.sql import SQLDatabaseChain
 
-from langchain.prompts import PromptTemplate
+#%%
+# Prompt template and Generate SQL
 
 prompt_template = PromptTemplate(
     input_variables=["input", "dialect", "table_info"],
@@ -67,6 +75,20 @@ Only generate valid SQL queries to fetch data from the already existing tables i
 
 Here is the list of tables you can query:
 {table_info}
+
+Given the user's question: {input}
+
+Output only the SQL query. No explanations or additional context. Use dialect: {dialect}
+
+Examples:
+Q: Total sales for each month in the year 2024
+SQL: SELECT TO_CHAR(salesorders.createdon::date, 'YYYY-MM') AS sales_month, SUM(salesorders.totalamount::numeric) AS total_sales FROM salesorders WHERE EXTRACT(YEAR FROM salesorders.createdon::date) = 2024 GROUP BY sales_month ORDER BY sales_month;
+
+Q: For October 2024, find the total sales amount for each customer.
+SQL: SELECT a.name AS customer_or_account_name, SUM(so.totalamount::numeric) AS total_sales FROM salesorders so JOIN accounts a ON so._customerid_value = a.accountid WHERE so.createdon::date >= '2024-10-01' AND so.createdon::date < '2024-11-01' GROUP BY a.name ORDER BY total_sales DESC;
+
+Q: List all customer names associated with the salesperson 'Kosith Theingtrong'.
+SQL: SELECT c.fullname AS customer_name FROM contacts c JOIN systemusers su ON c._ownerid_value = su.systemuserid WHERE su.fullname = 'Kosith Theingtrong';
 
 Given the user's question: {input}
 
@@ -269,6 +291,20 @@ Top 5 Columns:
 3.  actualstart
 4.  actualdurationminutes
 5.  _regardingobjectid_value
+
+---
+
+Table Name: systemusers
+
+Description: This table stores information about system users, including sales representatives and other personnel who interact with the system. It contains details such as user names, contact information, and security-related fields.
+
+Top 5 Columns in the Table:
+1.  fullname -- Full name of the user/sales person
+2.  internalemailaddress
+3.  mobilephone
+4.  jobtitle
+5.  _businessunitid_value -- Foreign Key to businessunits.businessunitid
+Primary Key: systemuserid
 """
 
 def generate_sql(query: str, dialect: str = "postgresql"):
@@ -277,7 +313,7 @@ def generate_sql(query: str, dialect: str = "postgresql"):
     # inputs = tokenizer(prompt, return_tensors="pt").to(device) 
     inputs = tokenizer(prompt, return_tensors="pt")
     
-    outputs = model.generate(**inputs, max_length=1500)
+    outputs = model.generate(**inputs, max_length=2000)
     
     full_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
     
@@ -292,9 +328,8 @@ def generate_sql(query: str, dialect: str = "postgresql"):
         
     return sql_query
 
-user_query = "What is the primary phone number and website URL for 'ENTECH SI CO., LTD.'?"
+user_query = "What are the names and estimated values of all opportunities that are in the '3.0' sales stage?"
 sql = generate_sql(user_query)
 print("Generated SQL:", sql)
-# %%
-print(db.get_usable_table_names())
+
 # %%
